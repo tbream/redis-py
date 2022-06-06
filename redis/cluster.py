@@ -1067,6 +1067,16 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
         # to caller of this method
         raise exception
 
+    def _send_command(self, connection, redis_node, *args, **kwargs):
+        command = args[0]
+        connection.send_command(*args)
+        response = redis_node.parse_response(connection, command, **kwargs)
+        if command in self.cluster_response_callbacks:
+            response = self.cluster_response_callbacks[command](
+                response, **kwargs
+            )
+        return response
+
     def _execute_command(self, target_node, *args, **kwargs):
         """
         Send a command to a node in the cluster
@@ -1101,16 +1111,10 @@ class RedisCluster(AbstractRedisCluster, RedisClusterCommands):
                 redis_node = self.get_redis_connection(target_node)
                 connection = get_connection(redis_node, *args, **kwargs)
                 if asking:
-                    connection.send_command("ASKING")
-                    redis_node.parse_response(connection, "ASKING", **kwargs)
+                    self._send_command(connection, redis_node, "ASKING", **kwargs)
                     asking = False
 
-                connection.send_command(*args)
-                response = redis_node.parse_response(connection, command, **kwargs)
-                if command in self.cluster_response_callbacks:
-                    response = self.cluster_response_callbacks[command](
-                        response, **kwargs
-                    )
+                response = self._send_command(connection, redis_node, *args, **kwargs)
                 return response
 
             except (RedisClusterException, BusyLoadingError) as e:
